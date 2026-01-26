@@ -58,10 +58,13 @@ def translate_to_japanese(text):
 # =====================
 def summarize_japanese(text, limit=400):
     text = text.replace("\n", " ").strip()
-    if len(text) > 2000:
-        text = text[:2000]  # 翻訳API保護
+
+    # ★ 重要：翻訳前に強制短縮
+    text = text[:800]
+
     translated = translate_to_japanese(text)
     return translated[:limit] + ("…" if len(translated) > limit else "")
+
 
 # =====================
 # Quantum Insider
@@ -181,6 +184,8 @@ def main():
     articles = []
     articles += fetch_quantum_insider()
     articles += fetch_quantinuum()
+
+    print(f"DEBUG: article count = {len(articles)}")
 
     send_email(articles)
 
