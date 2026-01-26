@@ -5,7 +5,6 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
 
 # =====================
 # 設定
@@ -38,33 +37,18 @@ def is_duplicate(title, url):
     return False
 
 # =====================
-# 英語 → 日本語翻訳（無料）
+# 英語要約（400 words以内）
 # =====================
-def translate_to_japanese(text):
-    url = "https://translate.googleapis.com/translate_a/single"
-    params = {
-        "client": "gtx",
-        "sl": "auto",
-        "tl": "ja",
-        "dt": "t",
-        "q": text
-    }
-    r = requests.get(url, params=params)
-    result = r.json()
-    return "".join([item[0] for item in result[0]])
-
-# =====================
-# 日本語要約（400字以内）
-# =====================
-def summarize_japanese(text, limit=400):
+def summarize_english(text, max_words=400):
     text = text.replace("\n", " ").strip()
 
-    # ★ 重要：翻訳前に強制短縮
-    text = text[:800]
+    # まず本文を安全な長さに制限
+    text = text[:4000]
 
-    translated = translate_to_japanese(text)
-    return translated[:limit] + ("…" if len(translated) > limit else "")
-
+    words = text.split()
+    if len(words) > max_words:
+        return " ".join(words[:max_words]) + "..."
+    return text
 
 # =====================
 # Quantum Insider
@@ -83,7 +67,7 @@ def fetch_quantum_insider():
                 continue
 
             title = a_tag.get_text(strip=True)
-            link = a_tag["href"]
+            link = a_tag.get("href", "")
             if not link.startswith("http"):
                 link = base + link
 
@@ -94,7 +78,7 @@ def fetch_quantum_insider():
             content_soup = BeautifulSoup(content.text, "html.parser")
             body = content_soup.get_text(" ", strip=True)
 
-            summary = summarize_japanese(body)
+            summary = summarize_english(body)
 
             date_tag = content_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
@@ -133,7 +117,7 @@ def fetch_quantinuum():
             article_soup = BeautifulSoup(article.text, "html.parser")
             body = article_soup.get_text(" ", strip=True)
 
-            summary = summarize_japanese(body)
+            summary = summarize_english(body)
 
             date_tag = article_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
@@ -155,11 +139,11 @@ def send_email(articles):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "【量子技術ニュース】最新情報"
+    msg["Subject"] = "【Quantum News】Daily Update"
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
 
-    html = "<html><body><h2>本日の量子技術ニュース</h2><ul>"
+    html = "<html><body><h2>Today's Quantum Technology News</h2><ul>"
     for a in articles:
         html += f"""
         <li>
@@ -184,8 +168,6 @@ def main():
     articles = []
     articles += fetch_quantum_insider()
     articles += fetch_quantinuum()
-
-    print(f"DEBUG: article count = {len(articles)}")
 
     send_email(articles)
 
