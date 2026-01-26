@@ -38,11 +38,30 @@ def is_duplicate(title, url):
     return False
 
 # =====================
-# 日本語要約（簡易）
+# 英語 → 日本語翻訳（無料）
 # =====================
-def summarize_japanese(text, limit=100):
-    text = text.replace("\n", "").strip()
-    return text[:limit] + ("…" if len(text) > limit else "")
+def translate_to_japanese(text):
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": "auto",
+        "tl": "ja",
+        "dt": "t",
+        "q": text
+    }
+    r = requests.get(url, params=params)
+    result = r.json()
+    return "".join([item[0] for item in result[0]])
+
+# =====================
+# 日本語要約（400字以内）
+# =====================
+def summarize_japanese(text, limit=400):
+    text = text.replace("\n", " ").strip()
+    if len(text) > 2000:
+        text = text[:2000]  # 翻訳API保護
+    translated = translate_to_japanese(text)
+    return translated[:limit] + ("…" if len(translated) > limit else "")
 
 # =====================
 # Quantum Insider
@@ -52,8 +71,7 @@ def fetch_quantum_insider():
     results = []
 
     for path in ["/news/", "/resources/"]:
-        url = base + path
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(base + path, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
         for article in soup.select("article"):
@@ -69,9 +87,10 @@ def fetch_quantum_insider():
             if is_duplicate(title, link):
                 continue
 
-            content_r = requests.get(link, headers=HEADERS)
-            content_soup = BeautifulSoup(content_r.text, "html.parser")
+            content = requests.get(link, headers=HEADERS)
+            content_soup = BeautifulSoup(content.text, "html.parser")
             body = content_soup.get_text(" ", strip=True)
+
             summary = summarize_japanese(body)
 
             date_tag = content_soup.find("time")
@@ -94,26 +113,23 @@ def fetch_quantinuum():
     results = []
 
     for path in ["/press-releases", "/blog"]:
-        url = base + path
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(base + path, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        for card in soup.select("a"):
-            link = card.get("href", "")
-            if not link.startswith("/"):
-                continue
-
-            full_url = base + link
-            title = card.get_text(strip=True)
+        for a in soup.select("a[href^='/']"):
+            title = a.get_text(strip=True)
             if not title:
                 continue
 
-            if is_duplicate(title, full_url):
+            link = base + a["href"]
+
+            if is_duplicate(title, link):
                 continue
 
-            article_r = requests.get(full_url, headers=HEADERS)
-            article_soup = BeautifulSoup(article_r.text, "html.parser")
+            article = requests.get(link, headers=HEADERS)
+            article_soup = BeautifulSoup(article.text, "html.parser")
             body = article_soup.get_text(" ", strip=True)
+
             summary = summarize_japanese(body)
 
             date_tag = article_soup.find("time")
@@ -121,7 +137,7 @@ def fetch_quantinuum():
 
             results.append({
                 "title": title,
-                "url": full_url,
+                "url": link,
                 "summary": summary,
                 "date": date
             })
