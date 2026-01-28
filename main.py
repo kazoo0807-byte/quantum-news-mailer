@@ -132,24 +132,33 @@ def fetch_quantinuum():
 # メール送信
 # =====================
 def send_email(articles):
-    if not articles:
-        return
-
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "【量子技術ニュース】最新情報"
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
 
-    html = "<html><body><h2>本日の量子技術ニュース</h2><ul>"
-    for a in articles:
-        html += f"""
-        <li>
-            <a href="{a['url']}">{a['title']}</a><br>
-            {a['summary']}<br>
-            <small>{a['date']}</small>
-        </li><br>
+    if not articles:
+        # ★ 新規ニュースなしの場合
+        html = """
+        <html>
+          <body>
+            <h2>本日の量子技術ニュース</h2>
+            <p>本日は新規ニュースがありませんでした。</p>
+          </body>
+        </html>
         """
-    html += "</ul></body></html>"
+    else:
+        # ★ 通常（ニュースあり）
+        html = "<html><body><h2>本日の量子技術ニュース</h2><ul>"
+        for a in articles:
+            html += f"""
+            <li>
+                <a href="{a['url']}">{a['title']}</a><br>
+                {a['summary']}<br>
+                <small>{a['date']}</small>
+            </li><br>
+            """
+        html += "</ul></body></html>"
 
     msg.attach(MIMEText(html, "html"))
 
@@ -157,6 +166,7 @@ def send_email(articles):
         server.starttls()
         server.login(FROM_EMAIL, APP_PASSWORD)
         server.send_message(msg)
+
 
 # =====================
 # メイン処理
