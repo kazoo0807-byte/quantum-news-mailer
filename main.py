@@ -5,6 +5,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from datetime import datetime
 
 # =====================
 # 設定
@@ -37,18 +38,11 @@ def is_duplicate(title, url):
     return False
 
 # =====================
-# 英語要約（400 words以内）
+# 日本語要約（簡易）
 # =====================
-def summarize_english(text, max_words=400):
-    text = text.replace("\n", " ").strip()
-
-    # まず本文を安全な長さに制限
-    text = text[:4000]
-
-    words = text.split()
-    if len(words) > max_words:
-        return " ".join(words[:max_words]) + "..."
-    return text
+def summarize_japanese(text, limit=100):
+    text = text.replace("\n", "").strip()
+    return text[:limit] + ("…" if len(text) > limit else "")
 
 # =====================
 # Quantum Insider
@@ -58,7 +52,8 @@ def fetch_quantum_insider():
     results = []
 
     for path in ["/news/", "/resources/"]:
-        r = requests.get(base + path, headers=HEADERS)
+        url = base + path
+        r = requests.get(url, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
         for article in soup.select("article"):
@@ -67,18 +62,17 @@ def fetch_quantum_insider():
                 continue
 
             title = a_tag.get_text(strip=True)
-            link = a_tag.get("href", "")
+            link = a_tag["href"]
             if not link.startswith("http"):
                 link = base + link
 
             if is_duplicate(title, link):
                 continue
 
-            content = requests.get(link, headers=HEADERS)
-            content_soup = BeautifulSoup(content.text, "html.parser")
+            content_r = requests.get(link, headers=HEADERS)
+            content_soup = BeautifulSoup(content_r.text, "html.parser")
             body = content_soup.get_text(" ", strip=True)
-
-            summary = summarize_english(body)
+            summary = summarize_japanese(body)
 
             date_tag = content_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
@@ -100,31 +94,34 @@ def fetch_quantinuum():
     results = []
 
     for path in ["/press-releases", "/blog"]:
-        r = requests.get(base + path, headers=HEADERS)
+        url = base + path
+        r = requests.get(url, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        for a in soup.select("a[href^='/']"):
-            title = a.get_text(strip=True)
+        for card in soup.select("a"):
+            link = card.get("href", "")
+            if not link.startswith("/"):
+                continue
+
+            full_url = base + link
+            title = card.get_text(strip=True)
             if not title:
                 continue
 
-            link = base + a["href"]
-
-            if is_duplicate(title, link):
+            if is_duplicate(title, full_url):
                 continue
 
-            article = requests.get(link, headers=HEADERS)
-            article_soup = BeautifulSoup(article.text, "html.parser")
+            article_r = requests.get(full_url, headers=HEADERS)
+            article_soup = BeautifulSoup(article_r.text, "html.parser")
             body = article_soup.get_text(" ", strip=True)
-
-            summary = summarize_english(body)
+            summary = summarize_japanese(body)
 
             date_tag = article_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
 
             results.append({
                 "title": title,
-                "url": link,
+                "url": full_url,
                 "summary": summary,
                 "date": date
             })
@@ -139,11 +136,11 @@ def send_email(articles):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "【Quantum News】Daily Update"
+    msg["Subject"] = "【量子技術ニュース】最新情報"
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
 
-    html = "<html><body><h2>Today's Quantum Technology News</h2><ul>"
+    html = "<html><body><h2>本日の量子技術ニュース</h2><ul>"
     for a in articles:
         html += f"""
         <li>
