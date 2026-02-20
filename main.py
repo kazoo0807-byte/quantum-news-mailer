@@ -30,30 +30,37 @@ if os.path.exists(SENT_FILE):
 else:
     sent_articles = []
 
+# ★ 今回実行中の重複防止用（タイトル）
+current_titles = set()
+
+def normalize_title(title):
+    return title.lower().strip()
+
 def is_duplicate(title, url):
-    title = title.strip().lower()
+    norm_title = normalize_title(title)
+
+    # 過去送信分との重複
     for a in sent_articles:
-        if a["title"].strip().lower() == title:
+        if normalize_title(a["title"]) == norm_title or a["url"] == url:
             return True
+
+    # 今回実行中の重複
+    if norm_title in current_titles:
+        return True
+
     return False
 
 # =====================
-# 日本語要約（約200 words 目安）
+# 英語要約（400 words以内）
 # =====================
-def summarize_japanese(text, max_chars=900):
-    """
-    約200 words相当の日本語要約（簡易）
-    """
+def summarize_english(text, max_words=400):
     text = text.replace("\n", " ").strip()
+    text = text[:4000]  # 安全対策
 
-    # 余計な空白整理
-    while "  " in text:
-        text = text.replace("  ", " ")
-
-    if len(text) <= max_chars:
-        return text
-
-    return text[:max_chars] + "…"
+    words = text.split()
+    if len(words) > max_words:
+        return " ".join(words[:max_words]) + "..."
+    return text
 
 # =====================
 # Quantum Insider
@@ -63,8 +70,7 @@ def fetch_quantum_insider():
     results = []
 
     for path in ["/news/", "/resources/"]:
-        url = base + path
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(base + path, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
         for article in soup.select("article"):
@@ -74,23 +80,23 @@ def fetch_quantum_insider():
 
             title = a_tag.get_text(strip=True)
             link = a_tag.get("href", "")
-            if not link:
-                continue
-
             if not link.startswith("http"):
                 link = base + link
 
             if is_duplicate(title, link):
                 continue
 
-            content_r = requests.get(link, headers=HEADERS)
-            content_soup = BeautifulSoup(content_r.text, "html.parser")
+            content = requests.get(link, headers=HEADERS)
+            content_soup = BeautifulSoup(content.text, "html.parser")
             body = content_soup.get_text(" ", strip=True)
 
-            summary = summarize_japanese(body)
+            summary = summarize_english(body)
 
             date_tag = content_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
+
+            # ★ 今回分として記録
+            current_titles.add(normalize_title(title))
 
             results.append({
                 "title": title,
@@ -109,36 +115,34 @@ def fetch_quantinuum():
     results = []
 
     for path in ["/press-releases", "/blog"]:
-        url = base + path
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(base + path, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        for card in soup.select("a"):
-            link = card.get("href", "")
-            if not link.startswith("/"):
-                continue
-
-            full_url = base + link
-            title = card.get_text(strip=True)
-
+        for a in soup.select("a[href^='/']"):
+            title = a.get_text(strip=True)
             if not title:
                 continue
 
-            if is_duplicate(title, full_url):
+            link = base + a["href"]
+
+            if is_duplicate(title, link):
                 continue
 
-            article_r = requests.get(full_url, headers=HEADERS)
-            article_soup = BeautifulSoup(article_r.text, "html.parser")
+            article = requests.get(link, headers=HEADERS)
+            article_soup = BeautifulSoup(article.text, "html.parser")
             body = article_soup.get_text(" ", strip=True)
 
-            summary = summarize_japanese(body)
+            summary = summarize_english(body)
 
             date_tag = article_soup.find("time")
             date = date_tag.get_text(strip=True) if date_tag else ""
 
+            # ★ 今回分として記録
+            current_titles.add(normalize_title(title))
+
             results.append({
                 "title": title,
-                "url": full_url,
+                "url": link,
                 "summary": summary,
                 "date": date
             })
@@ -150,23 +154,25 @@ def fetch_quantinuum():
 # =====================
 def send_email(articles):
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "【量子技術ニュース】本日の最新情報"
+    msg["Subject"] = "【Quantum News】Daily Update"
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
 
     if not articles:
         html = """
-        <html><body>
-        <h2>本日の量子技術ニュース</h2>
-        <p>本日は新規ニュースがありませんでした。</p>
-        </body></html>
+        <html>
+          <body>
+            <h2>Today's Quantum Technology News</h2>
+            <p>No new articles were published today.</p>
+          </body>
+        </html>
         """
     else:
-        html = "<html><body><h2>本日の量子技術ニュース</h2><ul>"
+        html = "<html><body><h2>Today's Quantum Technology News</h2><ul>"
         for a in articles:
             html += f"""
             <li>
-                <a href="{a['url']}"><strong>{a['title']}</strong></a><br>
+                <a href="{a['url']}">{a['title']}</a><br>
                 {a['summary']}<br>
                 <small>{a['date']}</small>
             </li><br>
